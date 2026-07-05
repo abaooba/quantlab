@@ -24,6 +24,22 @@
 - **MA Crossover** — 🚨 Overfitting red flag: profitable in-sample (Sharpe 1.08) but LOSES money out-of-sample (Sharpe -0.11). The in-sample edge was probably fit to that specific stretch of history.
 - **RSI Mean-Reversion** — ✅ In-sample (Sharpe 0.41) and out-of-sample (0.54) performance are broadly consistent — no overfitting signature on this split.
 
+### Out-of-sample CAPM regression vs SPY
+
+| Strategy | Beta | Alpha (ann.) | R² | Information ratio |
+|---|---|---|---|---|
+| Bollinger Breakout | 0.20 | +0.7% | 0.20 | -0.46 |
+| MA Crossover | 0.44 | -5.7% | 0.44 | -0.85 |
+| RSI Mean-Reversion | 0.68 | +1.2% | 0.68 | -0.20 |
+
+### Volatility targeting (10% target) applied to buy-and-hold, out-of-sample
+
+| | Volatility (ann.) | Sharpe | Max drawdown | CAGR |
+|---|---|---|---|---|
+| Buy & hold | 17.5% | 0.56 | -24.5% | +8.6% |
+| Vol-targeted buy & hold | 10.4% | 0.70 | -12.9% | +7.0% |
+
+
 ### Bootstrap reality check (out-of-sample Sharpe, 95% CI)
 
 | Strategy | OOS Sharpe | 95% CI | P(Sharpe ≤ 0) |
@@ -37,6 +53,8 @@ The peeking rule ends the decade at **$1,796,961,243** in the naive engine and *
 ### Parameter sweep (58 MA-crossover combos)
 
 The in-sample champion (fast=20, slow=50) posts an in-sample Sharpe of **1.08** — and ranks **#58 of 58** out-of-sample (Sharpe -0.11, beating just 0% of the very grid it champions).
+
+**Luck yardstick:** the expected best in-sample Sharpe from 58 *zero-skill* combos on this window is **≈0.88** (expected-maximum-Sharpe under the null). The champion's 1.08 barely clears the bar that pure sampling error sets.
 
 ### Walk-forward (5 windows, re-optimized each time)
 

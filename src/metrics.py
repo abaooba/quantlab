@@ -203,3 +203,60 @@ def summarize(results: pd.DataFrame, rf: float = 0.0) -> dict[str, float]:
         initial_capital=float(results["equity"].iloc[0]),
         rf=rf,
     )
+
+
+def alpha_beta(
+    strategy_returns: pd.Series, benchmark_returns: pd.Series, rf: float = 0.0
+) -> dict[str, float]:
+    """CAPM regression of strategy on benchmark excess daily returns.
+
+    Fits ``r_s − rf = α + β·(r_b − rf) + ε`` by least squares and reports:
+    ``beta`` (market sensitivity: 1 = moves with the market, 0 = market-
+    neutral), ``alpha_ann`` (the daily intercept × 252 — return unexplained
+    by market exposure, the number active managers are paid for), and ``r2``
+    (how much of the strategy's variance the market explains).
+    """
+    joined = pd.concat([strategy_returns, benchmark_returns], axis=1, join="inner").dropna()
+    if len(joined) < 3:
+        return {"alpha_ann": float("nan"), "beta": float("nan"), "r2": float("nan")}
+    rf_d = rf / TRADING_DAYS_PER_YEAR
+    y = joined.iloc[:, 0].to_numpy() - rf_d
+    x = joined.iloc[:, 1].to_numpy() - rf_d
+    var_x = x.var()
+    if var_x < _EPS_STD**2:
+        return {"alpha_ann": float("nan"), "beta": float("nan"), "r2": float("nan")}
+    beta = float(np.cov(x, y, ddof=1)[0, 1] / x.var(ddof=1))
+    alpha_d = float(y.mean() - beta * x.mean())
+    resid = y - (alpha_d + beta * x)
+    var_y = y.var(ddof=1)
+    r2 = float(1.0 - resid.var(ddof=1) / var_y) if var_y > _EPS_STD**2 else float("nan")
+    return {"alpha_ann": alpha_d * TRADING_DAYS_PER_YEAR, "beta": beta, "r2": r2}
+
+
+def information_ratio(strategy_returns: pd.Series, benchmark_returns: pd.Series) -> float:
+    """Mean active return over tracking error, annualized.
+
+    Sharpe grades a strategy against cash; the information ratio grades it
+    against the benchmark it is trying to beat — the metric that matters
+    once "just buy the index" is on the table.
+    """
+    active = (strategy_returns - benchmark_returns).dropna()
+    if len(active) < 2:
+        return float("nan")
+    te = active.std(ddof=1)
+    if not np.isfinite(te) or te < _EPS_STD:
+        return float("nan")
+    return float(active.mean() / te * np.sqrt(TRADING_DAYS_PER_YEAR))
+
+
+def rolling_sharpe(daily_returns: pd.Series, window: int = 252, rf: float = 0.0) -> pd.Series:
+    """Trailing-window annualized Sharpe — how the 'one number' drifts.
+
+    A full-period Sharpe hides regime dependence; the rolling view shows a
+    strategy living and dying with market conditions.
+    """
+    excess = daily_returns - rf / TRADING_DAYS_PER_YEAR
+    mean = excess.rolling(window).mean()
+    sd = excess.rolling(window).std(ddof=1)
+    out = mean / sd * np.sqrt(TRADING_DAYS_PER_YEAR)
+    return out.where(sd >= _EPS_STD)

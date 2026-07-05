@@ -80,6 +80,12 @@ optimizer's favorite cell goes from the bluest square to a pale red one, you did
 signal — you memorized noise. (Notice the *out-of-sample* winners hide in the slow, boring
 top-right corner nobody would have picked in 2021.)
 
+And here's the kicker — **the champion's 1.08 was never impressive to begin with.** Even if
+all 58 combos were pure noise, the expected *best* in-sample Sharpe from 58 zero-skill tries
+on this window is **≈0.88** (`stats.expected_max_sharpe`, the Bailey–López de Prado
+expected-maximum under the null). Selection bias alone was guaranteed to hand the sweep a
+"winner" at 0.88; observing 1.08 barely clears the bar that luck sets.
+
 ### Act 4 — Walk-forward: the honest way to optimize (and its humble result)
 
 If picking parameters once is overfitting, re-pick them the way a live trader would: optimize
@@ -113,6 +119,35 @@ preserving volatility clustering) puts error bars on the out-of-sample Sharpe:
 distinguish any of these strategies from no edge at all — and a tool that says so out loud
 is worth more than one that reports 0.54 as if it were fact.
 
+### Act 6 — The risk lens: beta, alpha, and sizing by volatility
+
+Regress each strategy's out-of-sample returns on SPY's (CAPM) and the "edge" decomposes
+into market exposure plus not much:
+
+| Strategy (out-of-sample) | Beta | Alpha (ann.) | R² | Information ratio |
+|---|---|---|---|---|
+| MA Crossover | 0.44 | **-5.7%** | 0.44 | -0.85 |
+| RSI Mean-Reversion | 0.68 | +1.2% | 0.68 | -0.20 |
+| Bollinger Breakout | 0.20 | +0.7% | 0.20 | -0.46 |
+
+Every information ratio is negative: net of what a scaled index position would have
+delivered, none of these strategies added value. (Spot the structural identity: for an
+on/off strategy trading its own benchmark, R² ≈ β ≈ time in market — the "strategy" is
+mostly just intermittent index exposure.)
+
+Position **sizing**, though, is a different story. Scale a plain buy-and-hold by
+`target ÷ realized volatility` (10% target, 20-day estimate, never levered above 1×) and
+out-of-sample:
+
+| | Volatility (ann.) | Sharpe | Max drawdown | CAGR |
+|---|---|---|---|---|
+| Buy & hold | 17.5% | 0.56 | -24.5% | +8.6% |
+| **Vol-targeted buy & hold** | **10.4%** | **0.70** | **-12.9%** | +7.0% |
+
+Same asset, no forecast, no signal — just *risk discipline* — and the Sharpe improves while
+the worst drawdown halves. The honest moral of the whole case study: in this data, managing
+**risk** paid; predicting **direction** didn't.
+
 ### Epilogue — costs, the quiet killer
 
 | Cost per trade (MA 20/50, out-of-sample) | OOS CAGR | OOS Sharpe |
@@ -133,7 +168,7 @@ costs. Strategies that trade daily get erased by this line item alone.
 
 | Tab | What it shows |
 |---|---|
-| 📈 **Backtest** | Pick ticker, dates, strategy, parameters, split, and cost. Equity + drawdown vs buy-and-hold with the out-of-sample region shaded, side-by-side in/out-of-sample metrics, an automated overfitting verdict, a bootstrap CI on the out-of-sample Sharpe, and a round-trip trade ledger. |
+| 📈 **Backtest** | Pick ticker, dates, strategy, parameters, split, cost — and optionally volatility targeting. Equity + drawdown vs buy-and-hold with the out-of-sample region shaded, side-by-side in/out-of-sample metrics, an automated overfitting verdict, an out-of-sample CAPM row (beta / alpha / R² / information ratio), a rolling 1-year Sharpe, a bootstrap CI on the out-of-sample Sharpe, and a round-trip trade ledger. |
 | 🔁 **Walk-Forward** | Anchored walk-forward optimization over a parameter grid: the all-out-of-sample equity curve, per-window chosen parameters (watch them jump — that's fragility), and the "reality gap" vs the hindsight-optimized Sharpe. |
 | 🔥 **Parameter Sweep** | The in-sample vs out-of-sample heatmap pair for the current ticker, with the in-sample champion starred and its out-of-sample rank computed. |
 | 📚 **Methodology** | The three lies and their fixes, plus the naive-vs-honest engine demo run live on your chosen ticker. |
@@ -150,14 +185,17 @@ src/
 ├── strategies/      registry pattern: @register_strategy exposes name → signal fn
 │   ├── base.py      contract: (prices, **params) → Series in {-1, 0, 1}, causal
 │   ├── ma_crossover.py · rsi.py (Wilder) · bollinger.py
-├── metrics.py       CAGR, Sharpe, Sortino, max drawdown (+dates), win rate, exposure
+├── metrics.py       CAGR, Sharpe, Sortino, max drawdown (+dates), win rate, exposure,
+│                    CAPM alpha/beta/R², information ratio, rolling Sharpe
 ├── evaluate.py      chronological split · segment metrics · overfitting verdict · figures
+├── sizing.py        volatility-targeted position sizing (fractional, never levered)
 ├── walkforward.py   anchored expanding-window optimization, chained OOS curve
+│                    (seam transitions charged at actual position change)
 ├── sweep.py         param grid → IS/OOS surface, champion-rank analysis
 ├── trades.py        position series → round-trip ledger, per-trade stats
-├── stats.py         moving-block bootstrap CI for Sharpe
+├── stats.py         moving-block bootstrap CI · expected-max-Sharpe luck yardstick
 └── app.py           Streamlit UI
-tests/               115 pytest tests — see below
+tests/               142 pytest tests — see below
 scripts/             check_data.py · run_case_study.py (regenerates everything above)
 ```
 
@@ -174,7 +212,7 @@ never *chosen* by looking at it.
 
 ## Tests
 
-115 tests, all offline except one marked live-data check (`-m "not network"` to skip it):
+142 tests, all offline except one marked live-data check (`-m "not network"` to skip it):
 
 - **Look-ahead proof:** a signal that peeks at its own bar's return turns an alternating
   series into a money machine in the naive engine and loses in the honest one.
@@ -189,6 +227,9 @@ never *chosen* by looking at it.
   training is strictly earlier data, invalid grid combos are skipped.
 - **Bootstrap:** deterministic under a seed, CI brackets the point estimate, a demeaned
   series straddles zero.
+- **Risk lens:** CAPM regression recovers constructed betas/alphas exactly; vol targeting
+  provably pulls realized volatility toward its target and is causally safe (the scale at
+  bar *t* is identical when computed with all future data deleted).
 
 ## Interview talking points
 
@@ -203,6 +244,12 @@ never *chosen* by looking at it.
    backwards. A single split can still be gamed by re-tuning until the holdout looks good —
    walk-forward re-optimizes honestly and the 0.85 → 0.79 "reality gap" prices what
    hindsight was worth.
+4. **"What actually added value here?"** Not signal timing — every strategy's information
+   ratio is negative, and CAPM shows they were mostly intermittent index exposure (R² ≈ β
+   for on/off strategies). What worked was *risk discipline*: volatility targeting on plain
+   buy-and-hold raised the Sharpe from 0.56 to 0.70 and halved the max drawdown, with no
+   prediction at all. That asymmetry — sizing beats forecasting — is one of the most robust
+   findings in the volatility-managed-portfolio literature, and it fell out of the data here.
 
 ## Honest limitations (know what this isn't)
 

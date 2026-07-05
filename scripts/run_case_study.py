@@ -22,7 +22,9 @@ import plotly.graph_objects as go
 from src.data import fetch_prices
 from src.engine import run_backtest, run_naive_backtest_do_not_use
 from src.evaluate import evaluate_strategy, format_metric, plot_drawdown, plot_equity_curve
-from src.stats import block_bootstrap_sharpe
+from src.metrics import alpha_beta, information_ratio
+from src.sizing import volatility_target
+from src.stats import block_bootstrap_sharpe, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY
 from src.style import BENCHMARK_COLOR, NEGATIVE_COLOR, STRATEGY_COLOR, base_layout
 from src.sweep import best_in_sample, oos_rank_of_is_best, parameter_sweep, sweep_heatmap_pair
@@ -86,6 +88,36 @@ def main() -> None:
     for name, r in results.items():
         lines.append(f"- **{name}** — {r.verdict}")
 
+    # ── 1b. CAPM: what does the market explain? (out-of-sample) ────────────
+    lines.append("\n### Out-of-sample CAPM regression vs SPY\n")
+    lines.append("| Strategy | Beta | Alpha (ann.) | R² | Information ratio |")
+    lines.append("|---|---|---|---|---|")
+    for name, r in results.items():
+        oos_mask = r.results.index >= r.split_date
+        rs = r.results.loc[oos_mask, "daily_return"]
+        rb = r.benchmark.loc[oos_mask, "daily_return"]
+        capm = alpha_beta(rs, rb)
+        ir = information_ratio(rs, rb)
+        lines.append(
+            f"| {name} | {capm['beta']:.2f} | {capm['alpha_ann']:+.1%} "
+            f"| {capm['r2']:.2f} | {ir:.2f} |"
+        )
+
+    # ── 1c. Volatility targeting: same signal, risk-managed size ───────────
+    def vt_hold(prices_, **_):
+        return volatility_target(pd.Series(1.0, index=prices_.index), prices_, target_vol=0.10)
+
+    vt = evaluate_strategy(vt_hold, prices, train_frac=TRAIN_FRAC, cost_bps=COST_BPS)
+    bh_oos, vt_oos = vt.benchmark_out_of_sample, vt.out_of_sample
+    lines.append(
+        "\n### Volatility targeting (10% target) applied to buy-and-hold, out-of-sample\n\n"
+        "| | Volatility (ann.) | Sharpe | Max drawdown | CAGR |\n|---|---|---|---|---|\n"
+        f"| Buy & hold | {bh_oos['Volatility (ann.)']:.1%} | {bh_oos['Sharpe']:.2f} "
+        f"| {bh_oos['Max drawdown']:.1%} | {format_metric('CAGR', bh_oos['CAGR'])} |\n"
+        f"| Vol-targeted buy & hold | {vt_oos['Volatility (ann.)']:.1%} | {vt_oos['Sharpe']:.2f} "
+        f"| {vt_oos['Max drawdown']:.1%} | {format_metric('CAGR', vt_oos['CAGR'])} |\n"
+    )
+
     # ── 2. Bootstrap: is the OOS Sharpe distinguishable from zero? ─────────
     lines.append("\n### Bootstrap reality check (out-of-sample Sharpe, 95% CI)\n")
     lines.append("| Strategy | OOS Sharpe | 95% CI | P(Sharpe ≤ 0) |")
@@ -128,12 +160,18 @@ def main() -> None:
     png(sweep_heatmap_pair(sweep_df, x="fast", y="slow"), "sweep_ma_crossover.png", height=470)
     best = best_in_sample(sweep_df)
     rank, pct = oos_rank_of_is_best(sweep_df)
+    n_is_obs = int((prices.index < bench.split_date).sum())
+    luck = expected_max_sharpe(len(sweep_df), n_is_obs)
     lines.append(
         f"\n### Parameter sweep ({len(sweep_df)} MA-crossover combos)\n\n"
         f"The in-sample champion (fast={best['fast']:.0f}, slow={best['slow']:.0f}) posts an "
         f"in-sample Sharpe of **{best['is_sharpe']:.2f}** — and ranks **#{rank} of "
         f"{len(sweep_df)}** out-of-sample (Sharpe {best['oos_sharpe']:.2f}, beating just "
-        f"{pct:.0%} of the very grid it champions)."
+        f"{pct:.0%} of the very grid it champions).\n\n"
+        f"**Luck yardstick:** the expected best in-sample Sharpe from {len(sweep_df)} "
+        f"*zero-skill* combos on this window is **≈{luck:.2f}** (expected-maximum-Sharpe "
+        f"under the null). The champion's {best['is_sharpe']:.2f} barely clears the bar "
+        f"that pure sampling error sets."
     )
 
     # ── 6. Walk-forward: the reality gap ────────────────────────────────────

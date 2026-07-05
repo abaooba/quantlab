@@ -84,3 +84,34 @@ def block_bootstrap_sharpe(
         n_boot=n_boot,
         block=block,
     )
+
+
+def expected_max_sharpe(n_trials: int, n_obs: int) -> float:
+    """Expected best annualized Sharpe among ``n_trials`` ZERO-skill strategies.
+
+    The selection-bias yardstick for parameter sweeps (Bailey & López de
+    Prado's "expected maximum Sharpe"): even if every combination in a grid
+    is pure noise, the *best* of N noisy Sharpe estimates is far above zero.
+    Under H0 (no skill, roughly i.i.d. daily returns) an annualized Sharpe
+    measured on ``n_obs`` daily bars has standard error ≈ √(252 / n_obs),
+    and the expected maximum of N standard normals is approximately
+
+        E[max] ≈ (1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e)),   γ ≈ 0.5772
+
+    Multiply the two and you get the in-sample Sharpe that luck *alone* was
+    expected to hand the sweep's champion. An observed champion near or
+    below this line is indistinguishable from noise. (Grid combos are
+    positively correlated — they share one history — so the effective N is
+    smaller and this line is, if anything, generous to the strategy.)
+    """
+    if n_trials < 2 or n_obs < 2:
+        return float("nan")
+    from statistics import NormalDist
+
+    gamma = 0.5772156649015329  # Euler–Mascheroni
+    ndist = NormalDist()
+    z = (1 - gamma) * ndist.inv_cdf(1 - 1 / n_trials) + gamma * ndist.inv_cdf(
+        1 - 1 / (n_trials * np.e)
+    )
+    se_annual = np.sqrt(TRADING_DAYS_PER_YEAR / n_obs)
+    return float(se_annual * z)
