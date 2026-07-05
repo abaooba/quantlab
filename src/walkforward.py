@@ -18,6 +18,9 @@ Causality note: signals for each candidate are computed once over the full
 series. Rolling indicators are backward-looking, so a signal value at date
 *t* is identical whether computed on data through *t* or through 2035 —
 what varies per window is only which *parameters* the train segment picks.
+At each window seam the chained curve charges the *actual* transition cost
+(from the previous window's ending position to the new run's position),
+replacing whatever historical transition the new run happened to embed.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ def walk_forward(
     # One full-series backtest per combo; every window then just slices it.
     # Combos invalid for the strategy (e.g. fast ≥ slow) are skipped.
     combos: list[dict] = []
-    runs: list[pd.Series] = []
+    runs: list[pd.DataFrame] = []
     for combo in _combos(param_grid):
         try:
             signals = fn(prices, **combo)
@@ -110,17 +113,33 @@ def walk_forward(
             continue
         res = run_backtest(prices, signals, initial_capital=initial_capital, cost_bps=cost_bps)
         combos.append(combo)
-        runs.append(res["daily_return"])
+        runs.append(res)
     if not runs:
         raise ValueError("no valid parameter combination in the grid")
 
     windows: list[WalkForwardWindow] = []
     oos_parts: list[pd.Series] = []
+    best_i = 0  # fallback stance if the first window has nothing measurable
+    prev_pos = 0.0  # the walk-forward trader starts flat
     for chunk in test_chunks:
         t0, t1 = int(chunk[0]), int(chunk[-1]) + 1
-        train_sharpes = [sharpe_ratio(r.iloc[:t0], rf) for r in runs]
-        best_i = int(np.nanargmax(train_sharpes))
-        test_rets = runs[best_i].iloc[t0:t1]
+        train_sharpes = [sharpe_ratio(r["daily_return"].iloc[:t0], rf) for r in runs]
+        if np.all(np.isnan(train_sharpes)):
+            # Every combo was flat/undefined on this train window (e.g. still
+            # inside indicator warm-up): keep the previous window's parameters
+            # rather than crash — a live trader with no signal changes nothing.
+            pass
+        else:
+            best_i = int(np.nanargmax(train_sharpes))
+        run = runs[best_i]
+        test_rets = run["daily_return"].iloc[t0:t1].copy()
+        # Seam correction: the chained trader crosses the boundary holding the
+        # PREVIOUS window's ending position, not this run's historical one —
+        # swap the run's embedded transition cost for the actual one.
+        embedded = float(run["turnover"].iloc[t0])
+        actual = abs(float(run["position"].iloc[t0]) - prev_pos)
+        test_rets.iloc[0] += (embedded - actual) * cost_bps / 10_000.0
+        prev_pos = float(run["position"].iloc[t1 - 1])
         windows.append(
             WalkForwardWindow(
                 train_start=prices.index[0],
@@ -141,8 +160,8 @@ def walk_forward(
         oos_returns, initial_capital=initial_capital, rf=rf, base_date=base_date
     )
 
-    full_sharpes = [sharpe_ratio(r, rf) for r in runs]
-    hind_i = int(np.nanargmax(full_sharpes))
+    full_sharpes = [sharpe_ratio(r["daily_return"], rf) for r in runs]
+    hind_i = 0 if np.all(np.isnan(full_sharpes)) else int(np.nanargmax(full_sharpes))
 
     bench = run_backtest(prices, pd.Series(1.0, index=prices.index),
                          initial_capital=initial_capital, cost_bps=cost_bps)

@@ -49,3 +49,39 @@ class TestHeatmap:
         assert len(heatmaps) == 2
         # shared, zero-centered color scale
         assert heatmaps[0].zmin == -heatmaps[0].zmax
+
+
+class TestNaNHandling:
+    def test_all_nan_in_sample_raises_cleanly(self):
+        # Windows longer than the in-sample segment → every combo flat in-sample.
+        prices = frame(150)
+        with pytest.raises(ValueError, match="undefined in-sample"):
+            df = parameter_sweep("MA Crossover", prices, {"fast": [100], "slow": [140]},
+                                 train_frac=0.6)
+            best_in_sample(df)
+
+    def test_rank_ignores_nan_peers(self):
+        df = pd.DataFrame(
+            {
+                "fast": [1, 2, 3, 4],
+                "is_sharpe": [1.5, 0.2, 0.9, np.nan],
+                "oos_sharpe": [0.1, 0.5, np.nan, np.nan],
+            }
+        )
+        best = best_in_sample(df)
+        assert best["fast"] == 1  # NaN IS rows can't be champion
+        rank, pct = oos_rank_of_is_best(df)
+        assert rank == 2  # among the 2 measurable OOS combos, 0.5 beats 0.1
+        assert pct == 0.0  # champion beat none of its measurable peers
+
+    def test_nan_oos_champion_counts_as_worst(self):
+        df = pd.DataFrame(
+            {
+                "fast": [1, 2, 3],
+                "is_sharpe": [2.0, 0.5, 0.1],
+                "oos_sharpe": [np.nan, 0.4, 0.2],
+            }
+        )
+        rank, pct = oos_rank_of_is_best(df)
+        assert rank == 3  # worse than both measurable combos
+        assert pct == 0.0

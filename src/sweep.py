@@ -77,19 +77,28 @@ def parameter_sweep(
 
 def best_in_sample(sweep_df: pd.DataFrame) -> pd.Series:
     """The combo a naive optimizer would pick (highest in-sample Sharpe)."""
-    return sweep_df.loc[sweep_df["is_sharpe"].idxmax()]
+    valid = sweep_df["is_sharpe"].dropna()
+    if valid.empty:
+        raise ValueError("every combo produced an undefined in-sample Sharpe (all flat?)")
+    return sweep_df.loc[valid.idxmax()]
 
 
 def oos_rank_of_is_best(sweep_df: pd.DataFrame) -> tuple[int, float]:
     """Where the in-sample winner lands out-of-sample: (rank, percentile).
 
-    Rank 1 = best. Percentile 0.95 means it beat 95% of combos — a strategy
-    whose in-sample champion ranks middling out-of-sample was curve-fit.
+    Rank 1 = best. Percentile 0.95 means it beat 95% of the *other* combos —
+    a champion that ranks middling out-of-sample was curve-fit. Combos with
+    an undefined out-of-sample Sharpe are excluded; a champion that is itself
+    undefined out-of-sample counts as worse than every measurable combo.
     """
     best = best_in_sample(sweep_df)
-    oos = sweep_df["oos_sharpe"]
-    rank = int((oos > oos.loc[best.name]).sum()) + 1
-    pct = float((oos < oos.loc[best.name]).mean())
+    peers = sweep_df["oos_sharpe"].dropna()
+    champ = best["oos_sharpe"]
+    if pd.isna(champ):
+        return len(peers) + 1, 0.0
+    others = peers.drop(index=best.name, errors="ignore")
+    rank = int((peers > champ).sum()) + 1
+    pct = float((others < champ).mean()) if len(others) else 0.0
     return rank, pct
 
 

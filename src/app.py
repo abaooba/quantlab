@@ -96,23 +96,40 @@ def sidebar() -> dict:
         "In-sample fraction", 0.5, 0.9, 0.7, 0.05,
         help="Chronological split: the first X% of the window is in-sample; the rest is held out.",
     )
+    split_date = None
+    with st.sidebar.expander("Exact split date (optional)"):
+        use_exact = st.checkbox("Override the fraction with a date")
+        if use_exact:
+            picked = st.date_input("First out-of-sample day", pd.Timestamp("2022-01-01"))
+            split_date = str(picked)
     cost_bps = st.sidebar.number_input(
         "Transaction cost (bps per trade)", 0.0, 100.0, 5.0, 1.0,
         help="Basis points charged on every position change. 5 bps ≈ liquid US ETF; try 0 to see the fantasy version.",
     )
     rf = st.sidebar.number_input("Risk-free rate (annual %)", 0.0, 10.0, 0.0, 0.25) / 100.0
 
-    return dict(
+    cfg = dict(
         ticker=ticker, start=str(start), end=str(end), strategy=strategy,
-        params=params, train_frac=train_frac, cost_bps=float(cost_bps), rf=float(rf),
+        params=params, train_frac=train_frac, split_date=split_date,
+        cost_bps=float(cost_bps), rf=float(rf),
     )
+
+    st.sidebar.divider()
+    run = st.sidebar.button("▶ Run backtest", type="primary", width="stretch")
+    # First load runs the defaults; afterwards, changes apply on click.
+    if run or "cfg" not in st.session_state:
+        st.session_state.cfg = cfg
+    elif cfg != st.session_state.cfg:
+        st.sidebar.caption("Settings changed — press **Run backtest** to apply.")
+    return st.session_state.cfg
 
 
 def render_backtest(cfg: dict, prices: pd.DataFrame) -> None:
     try:
         result = evaluate_strategy(
             cfg["strategy"], prices, train_frac=cfg["train_frac"],
-            cost_bps=cfg["cost_bps"], rf=cfg["rf"], **cfg["params"],
+            cost_bps=cfg["cost_bps"], rf=cfg["rf"], split_date=cfg.get("split_date"),
+            **cfg["params"],
         )
     except ValueError as exc:
         st.error(f"Invalid configuration: {exc}")

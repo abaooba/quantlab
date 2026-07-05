@@ -110,3 +110,26 @@ class TestStats:
     def test_no_losses_profit_factor_infinite(self):
         trades = pd.DataFrame({"gross_return": [0.1, 0.2], "bars_held": [1, 2], "open": [False, False]})
         assert trade_stats(trades)["Profit factor"] == float("inf")
+
+
+class TestMidPositionFrames:
+    def test_frame_starting_in_position_prices_entry_at_first_bar(self):
+        # An out-of-sample slice can begin mid-trade; the ledger must not wrap
+        # to index -1 and price the entry off the final (future) bar.
+        idx = pd.bdate_range("2021-01-01", periods=5)
+        closes = pd.Series([100.0, 110.0, 121.0, 121.0, 121.0], index=idx)
+        prices = pd.DataFrame({"Open": closes, "High": closes, "Low": closes,
+                               "Close": closes, "Volume": 1e6})
+        results = pd.DataFrame(
+            {
+                "position": [1.0, 1.0, 1.0, 0.0, 0.0],
+                "asset_return": closes.pct_change().fillna(0.0),
+            },
+            index=idx,
+        )
+        trades = extract_trades(results, prices)
+        assert len(trades) == 1
+        t = trades.iloc[0]
+        assert t["entry_date"] == idx[0]
+        assert t["entry_price"] == pytest.approx(100.0)
+        assert t["exit_price"] == pytest.approx(121.0)

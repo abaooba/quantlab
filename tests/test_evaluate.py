@@ -119,3 +119,25 @@ class TestPresentation:
         result = evaluate_strategy(always_long, frame())
         for fig in (plot_equity_curve(result), plot_drawdown(result)):
             assert len(fig.data) == 2  # benchmark + strategy
+
+
+class TestReviewFixes:
+    def test_inverse_surprise_verdict(self):
+        flag, text = overfitting_verdict({"Sharpe": -0.5}, {"Sharpe": 0.8})
+        assert not flag and "🍀" in text and "luck" in text.lower()
+
+    def test_explicit_split_date_snaps_to_next_bar(self):
+        prices = frame(100)
+        target = prices.index[40] + pd.Timedelta(days=1)  # between bars
+        split = split_in_out_sample(prices, split_date=target)
+        assert split == prices.index[41]
+
+    def test_split_date_flows_through_evaluate(self):
+        prices = frame(100)
+        result = evaluate_strategy(always_long, prices, split_date=prices.index[30])
+        assert result.split_date == prices.index[30]
+
+    def test_split_date_at_edge_raises(self):
+        prices = frame(100)
+        with pytest.raises(ValueError, match="fewer than 2 bars"):
+            split_in_out_sample(prices, split_date=prices.index[-1])

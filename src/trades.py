@@ -58,7 +58,9 @@ def extract_trades(results: pd.DataFrame, prices: pd.DataFrame | pd.Series) -> p
 
 def _close_trade(current, end, index, close, asset_ret, still_open=False) -> dict:
     e, size = current["start"], current["size"]
-    entry_i, exit_i = e - 1, end - 1
+    # e == 0 means the frame starts mid-position (e.g. an out-of-sample slice):
+    # price the entry at the first visible bar instead of wrapping to index -1.
+    entry_i, exit_i = max(e - 1, 0), end - 1
     held = asset_ret.iloc[e:end]
     gross = float((1.0 + size * held).prod() - 1.0)
     return {

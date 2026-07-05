@@ -36,11 +36,23 @@ from src.style import (
 )
 
 
-def split_in_out_sample(prices: pd.DataFrame, train_frac: float = 0.7) -> pd.Timestamp:
-    """Return the first out-of-sample date for a chronological split."""
+def split_in_out_sample(
+    prices: pd.DataFrame, train_frac: float = 0.7, split_date=None
+) -> pd.Timestamp:
+    """Return the first out-of-sample date for a chronological split.
+
+    Either give ``train_frac`` (default: first 70% of bars are in-sample) or
+    an explicit ``split_date``, which is snapped to the first bar at/after it.
+    """
+    n = len(prices)
+    if split_date is not None:
+        ts = pd.Timestamp(split_date)
+        after = prices.index[prices.index >= ts]
+        if len(after) < 2 or (prices.index < ts).sum() < 2:
+            raise ValueError(f"split_date {ts.date()} leaves fewer than 2 bars on one side")
+        return after[0]
     if not 0.0 < train_frac < 1.0:
         raise ValueError("train_frac must be in (0, 1)")
-    n = len(prices)
     cut = int(n * train_frac)
     if cut < 2 or n - cut < 2:
         raise ValueError(f"{n} bars is too few for a {train_frac:.0%} split")
@@ -98,6 +110,12 @@ def overfitting_verdict(in_sample: dict, out_of_sample: dict) -> tuple[bool, str
             f"➖ No edge in either segment (Sharpe {is_s:.2f} in-sample, {oos_s:.2f} "
             "out-of-sample). Honest, at least."
         )
+    if is_s <= 0 < oos_s:
+        return False, (
+            f"🍀 Inverse surprise: no edge in-sample (Sharpe {is_s:.2f}) yet positive "
+            f"out-of-sample ({oos_s:.2f}). That's luck or a regime change, not evidence "
+            "of skill — nobody would have traded this after seeing the in-sample result."
+        )
     return False, (
         f"✅ In-sample (Sharpe {is_s:.2f}) and out-of-sample ({oos_s:.2f}) performance "
         "are broadly consistent — no overfitting signature on this split."
@@ -111,12 +129,14 @@ def evaluate_strategy(
     cost_bps: float = 5.0,
     initial_capital: float = 100_000.0,
     rf: float = 0.0,
+    split_date=None,
     **params,
 ) -> EvaluationResult:
     """Backtest a strategy and report in-sample vs out-of-sample metrics.
 
     ``strategy`` is a registered display name (see ``STRATEGY_REGISTRY``) or
-    a signal function following the strategy contract. A buy-and-hold
+    a signal function following the strategy contract. The split comes from
+    ``train_frac`` unless an explicit ``split_date`` is given. A buy-and-hold
     benchmark over the same window is evaluated alongside, split identically.
     """
     if isinstance(strategy, str):
@@ -126,7 +146,7 @@ def evaluate_strategy(
     else:
         name, fn = getattr(strategy, "__name__", "custom"), strategy
 
-    split_date = split_in_out_sample(prices, train_frac)
+    split_date = split_in_out_sample(prices, train_frac, split_date=split_date)
 
     signals = fn(prices, **params)
     results = run_backtest(prices, signals, initial_capital=initial_capital, cost_bps=cost_bps)
