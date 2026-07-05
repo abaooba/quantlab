@@ -40,6 +40,16 @@
 | Vol-targeted buy & hold | 10.4% | 0.70 | -12.9% | +7.0% |
 
 
+### Performance by VIX regime (full period, MA Crossover 20/50)
+
+| Regime | Days | MA ann. return | MA Sharpe | B&H ann. return | B&H Sharpe |
+|---|---|---|---|---|---|
+| calm | 1010 | +32.7% | 4.49 | +41.0% | 5.15 |
+| normal | 1151 | +0.8% | 0.07 | +13.9% | 0.90 |
+| stressed | 355 | -38.6% | -2.14 | -64.0% | -1.84 |
+
+(Regimes by the day's VIX close: calm < 15, stressed > 25 — fixed thresholds, no look-ahead. Diagnostic only; the engine never sees the labels.)
+
 ### Bootstrap reality check (out-of-sample Sharpe, 95% CI)
 
 | Strategy | OOS Sharpe | 95% CI | P(Sharpe ≤ 0) |

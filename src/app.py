@@ -23,6 +23,7 @@ from src.evaluate import (
     plot_equity_curve,
 )
 from src.metrics import alpha_beta, information_ratio, rolling_sharpe
+from src.regimes import regime_performance, vix_regimes
 from src.sizing import volatility_target
 from src.stats import block_bootstrap_sharpe, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY, STRATEGY_SPECS
@@ -65,6 +66,15 @@ def cached_sweep(ticker, start, end, strategy, train_frac, cost_bps):
 def cached_walkforward(ticker, start, end, strategy, n_windows, cost_bps):
     prices = load_prices(ticker, start, end)
     return walk_forward(strategy, prices, WF_GRIDS[strategy], n_windows=n_windows, cost_bps=cost_bps)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def cached_vix_regimes(ticker, start, end):
+    prices = load_prices(ticker, start, end)
+    try:
+        return vix_regimes(prices)
+    except Exception:
+        return None
 
 
 def sidebar() -> dict:
@@ -201,6 +211,31 @@ def render_backtest(cfg: dict, prices: pd.DataFrame) -> None:
             "A full-period Sharpe averages over regimes; the rolling view shows the strategy "
             "living and dying with market conditions."
         )
+
+    with st.expander("Performance by volatility regime (VIX)"):
+        regimes = cached_vix_regimes(cfg["ticker"], cfg["start"], cfg["end"])
+        if regimes is None:
+            st.caption("VIX data unavailable right now — regime attribution needs a live fetch of ^VIX.")
+        else:
+            table = regime_performance(
+                {
+                    result.strategy_name: result.results["daily_return"],
+                    "Buy & hold": result.benchmark["daily_return"],
+                },
+                regimes, rf=cfg["rf"],
+            )
+            fmt = table.copy()
+            for col in fmt.columns:
+                if "ann. return" in col:
+                    fmt[col] = fmt[col].map(lambda v: "—" if pd.isna(v) else f"{v:+.1%}")
+                elif "Sharpe" in col:
+                    fmt[col] = fmt[col].map(lambda v: "—" if pd.isna(v) else f"{v:.2f}")
+            st.dataframe(fmt, width="stretch")
+            st.caption(
+                "Full-period returns conditioned on the day's VIX close (calm < 15, stressed > 25 — "
+                "fixed thresholds, no look-ahead). A strategy that only earns in one regime owns "
+                "that regime's risk: ask what happens when the market changes its mind."
+            )
 
     st.subheader("Is the out-of-sample Sharpe even real?")
     try:

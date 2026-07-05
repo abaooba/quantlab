@@ -23,6 +23,7 @@ from src.data import fetch_prices
 from src.engine import run_backtest, run_naive_backtest_do_not_use
 from src.evaluate import evaluate_strategy, format_metric, plot_drawdown, plot_equity_curve
 from src.metrics import alpha_beta, information_ratio
+from src.regimes import regime_performance, vix_regimes
 from src.sizing import volatility_target
 from src.stats import block_bootstrap_sharpe, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY
@@ -117,6 +118,32 @@ def main() -> None:
         f"| Vol-targeted buy & hold | {vt_oos['Volatility (ann.)']:.1%} | {vt_oos['Sharpe']:.2f} "
         f"| {vt_oos['Max drawdown']:.1%} | {format_metric('CAGR', vt_oos['CAGR'])} |\n"
     )
+
+    # ── 1d. VIX regime attribution: where the money was made and lost ──────
+    regimes = vix_regimes(prices)
+    if regimes is not None:
+        ma = results["MA Crossover"]
+        table = regime_performance(
+            {"MA Crossover": ma.results["daily_return"], "Buy & hold": ma.benchmark["daily_return"]},
+            regimes,
+        )
+        lines.append("\n### Performance by VIX regime (full period, MA Crossover 20/50)\n")
+        lines.append("| Regime | Days | MA ann. return | MA Sharpe | B&H ann. return | B&H Sharpe |")
+        lines.append("|---|---|---|---|---|---|")
+        for regime, row in table.iterrows():
+            def _f(v, pct=False):
+                if pd.isna(v):
+                    return "—"
+                return f"{v:+.1%}" if pct else f"{v:.2f}"
+            lines.append(
+                f"| {regime} | {int(row['Days'])} "
+                f"| {_f(row['MA Crossover · ann. return'], pct=True)} | {_f(row['MA Crossover · Sharpe'])} "
+                f"| {_f(row['Buy & hold · ann. return'], pct=True)} | {_f(row['Buy & hold · Sharpe'])} |"
+            )
+        lines.append(
+            "\n(Regimes by the day's VIX close: calm < 15, stressed > 25 — fixed thresholds, "
+            "no look-ahead. Diagnostic only; the engine never sees the labels.)"
+        )
 
     # ── 2. Bootstrap: is the OOS Sharpe distinguishable from zero? ─────────
     lines.append("\n### Bootstrap reality check (out-of-sample Sharpe, 95% CI)\n")

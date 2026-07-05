@@ -148,6 +148,20 @@ Same asset, no forecast, no signal — just *risk discipline* — and the Sharpe
 the worst drawdown halves. The honest moral of the whole case study: in this data, managing
 **risk** paid; predicting **direction** didn't.
 
+Conditioning on the VIX (calm < 15 / stressed > 25, fixed thresholds) shows *where* each
+dollar was made and lost, full period:
+
+| Regime | Days | MA Crossover ann. return | Buy & hold ann. return |
+|---|---|---|---|
+| Calm | 1,010 | +32.7% | +41.0% |
+| Normal | 1,151 | +0.8% | +13.9% |
+| Stressed | 355 | **-38.6%** | **-64.0%** |
+
+Now the crossover's true identity is visible: it is **partial crash insurance**. It gives up
+returns in calm and normal markets (its whipsaw premium) in exchange for losing *less* when
+volatility spikes. Whether that trade is worth it is a risk-preference question — but a
+backtest that only shows the full-period average never even lets you ask it.
+
 ### Epilogue — costs, the quiet killer
 
 | Cost per trade (MA 20/50, out-of-sample) | OOS CAGR | OOS Sharpe |
@@ -168,7 +182,7 @@ costs. Strategies that trade daily get erased by this line item alone.
 
 | Tab | What it shows |
 |---|---|
-| 📈 **Backtest** | Pick ticker, dates, strategy, parameters, split, cost — and optionally volatility targeting. Equity + drawdown vs buy-and-hold with the out-of-sample region shaded, side-by-side in/out-of-sample metrics, an automated overfitting verdict, an out-of-sample CAPM row (beta / alpha / R² / information ratio), a rolling 1-year Sharpe, a bootstrap CI on the out-of-sample Sharpe, and a round-trip trade ledger. |
+| 📈 **Backtest** | Pick ticker, dates, strategy, parameters, split, cost — and optionally volatility targeting. Equity + drawdown vs buy-and-hold with the out-of-sample region shaded, side-by-side in/out-of-sample metrics, an automated overfitting verdict, an out-of-sample CAPM row (beta / alpha / R² / information ratio), a rolling 1-year Sharpe, a VIX regime-attribution table, a bootstrap CI on the out-of-sample Sharpe, and a round-trip trade ledger. |
 | 🔁 **Walk-Forward** | Anchored walk-forward optimization over a parameter grid: the all-out-of-sample equity curve, per-window chosen parameters (watch them jump — that's fragility), and the "reality gap" vs the hindsight-optimized Sharpe. |
 | 🔥 **Parameter Sweep** | The in-sample vs out-of-sample heatmap pair for the current ticker, with the in-sample champion starred and its out-of-sample rank computed. |
 | 📚 **Methodology** | The three lies and their fixes, plus the naive-vs-honest engine demo run live on your chosen ticker. |
@@ -189,13 +203,14 @@ src/
 │                    CAPM alpha/beta/R², information ratio, rolling Sharpe
 ├── evaluate.py      chronological split · segment metrics · overfitting verdict · figures
 ├── sizing.py        volatility-targeted position sizing (fractional, never levered)
+├── regimes.py       VIX regime attribution (calm/normal/stressed, fixed thresholds)
 ├── walkforward.py   anchored expanding-window optimization, chained OOS curve
 │                    (seam transitions charged at actual position change)
 ├── sweep.py         param grid → IS/OOS surface, champion-rank analysis
 ├── trades.py        position series → round-trip ledger, per-trade stats
 ├── stats.py         moving-block bootstrap CI · expected-max-Sharpe luck yardstick
 └── app.py           Streamlit UI
-tests/               142 pytest tests — see below
+tests/               148 pytest tests — see below
 scripts/             check_data.py · run_case_study.py (regenerates everything above)
 ```
 
@@ -212,7 +227,7 @@ never *chosen* by looking at it.
 
 ## Tests
 
-142 tests, all offline except one marked live-data check (`-m "not network"` to skip it):
+148 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
 
 - **Look-ahead proof:** a signal that peeks at its own bar's return turns an alternating
   series into a money machine in the naive engine and loses in the honest one.
