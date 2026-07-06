@@ -20,6 +20,15 @@ import pandas as pd
 from src.metrics import TRADING_DAYS_PER_YEAR
 
 
+def _block_sample(x: np.ndarray, length: int, n_paths: int, block: int, rng) -> np.ndarray:
+    """(n_paths, length) matrix of moving-block bootstrap resamples of ``x``."""
+    n = len(x)
+    n_blocks = int(np.ceil(length / block))
+    starts = rng.integers(0, n - block + 1, size=(n_paths, n_blocks))
+    idx = (starts[:, :, None] + np.arange(block)[None, None, :]).reshape(n_paths, -1)[:, :length]
+    return x[idx]
+
+
 @dataclass(frozen=True)
 class BootstrapResult:
     point: float  # Sharpe measured on the actual sample
@@ -60,10 +69,7 @@ def block_bootstrap_sharpe(
     point = float("nan") if sd < 1e-12 else float(x.mean() / sd * np.sqrt(TRADING_DAYS_PER_YEAR))
 
     rng = np.random.default_rng(seed)
-    n_blocks = int(np.ceil(n / block))
-    starts = rng.integers(0, n - block + 1, size=(n_boot, n_blocks))
-    idx = (starts[:, :, None] + np.arange(block)[None, None, :]).reshape(n_boot, -1)[:, :n]
-    samples = x[idx]  # (n_boot, n)
+    samples = _block_sample(x, n, n_boot, block, rng)  # (n_boot, n)
 
     means = samples.mean(axis=1)
     sds = samples.std(axis=1, ddof=1)
@@ -115,3 +121,56 @@ def expected_max_sharpe(n_trials: int, n_obs: int) -> float:
     )
     se_annual = np.sqrt(TRADING_DAYS_PER_YEAR / n_obs)
     return float(se_annual * z)
+
+
+@dataclass(frozen=True)
+class DrawdownDistribution:
+    """Bootstrap distribution of the max drawdown over a fixed horizon."""
+
+    median: float  # typical worst peak-to-trough over the horizon (negative)
+    p95: float  # 95th-percentile pain: only 5% of paths were worse
+    horizon_years: float
+    n_paths: int
+    block: int
+
+
+def bootstrap_drawdown_distribution(
+    daily_returns: pd.Series,
+    horizon_years: float = 3.0,
+    n_paths: int = 2000,
+    block: int = 21,
+    seed: int = 0,
+) -> DrawdownDistribution:
+    """What max drawdown should you *expect* — even if the returns are real?
+
+    ``max_drawdown`` on the backtest reports the one drawdown history
+    happened to serve. But drawdown is a random variable: resample the daily
+    returns (moving blocks, preserving volatility clustering) into thousands
+    of alternate ``horizon_years``-long paths and record each path's worst
+    peak-to-trough. The median answers "what's typical?"; the 95th
+    percentile answers "what should I be *prepared* for before I'd have any
+    statistical right to be surprised?" Traders who quit at the historical
+    max drawdown usually quit inside this distribution's ordinary range.
+    """
+    x = daily_returns.to_numpy(dtype=float)
+    n = len(x)
+    if n < 60:
+        raise ValueError(f"need ≥ 60 daily returns, got {n}")
+    block = int(min(block, max(5, n // 10)))
+    length = int(round(horizon_years * TRADING_DAYS_PER_YEAR))
+    if length < 2:
+        raise ValueError("horizon too short")
+
+    rng = np.random.default_rng(seed)
+    paths = _block_sample(x, length, n_paths, block, rng)
+    equity = np.cumprod(1.0 + paths, axis=1)
+    running_max = np.maximum.accumulate(equity, axis=1)
+    max_dd = (equity / running_max - 1.0).min(axis=1)
+
+    return DrawdownDistribution(
+        median=float(np.quantile(max_dd, 0.5)),
+        p95=float(np.quantile(max_dd, 0.05)),
+        horizon_years=horizon_years,
+        n_paths=n_paths,
+        block=block,
+    )

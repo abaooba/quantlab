@@ -257,6 +257,27 @@ def main() -> None:
         lines.append(f"| {bps} bps | {format_metric('CAGR', r.out_of_sample['CAGR'])} "
                      f"| {format_metric('Sharpe', r.out_of_sample['Sharpe'])} |")
 
+    from src.engine import breakeven_cost_bps
+    from src.stats import bootstrap_drawdown_distribution
+
+    ma_oos = ma.results.loc[ma.results.index >= ma.split_date]
+    be = breakeven_cost_bps(ma_oos)
+    rsi = results["RSI Mean-Reversion"]
+    rsi_oos = rsi.results.loc[rsi.results.index >= rsi.split_date]
+    be_rsi = breakeven_cost_bps(rsi_oos)
+    lines.append(
+        f"\nBreakeven cost (the per-trade fee at which the gross edge is fully spent): "
+        f"**{be:.1f} bps** for the MA crossover out-of-sample (there is no gross edge to "
+        f"spend) vs **{be_rsi:.1f} bps** for RSI mean-reversion."
+    )
+    dd = bootstrap_drawdown_distribution(rsi_oos["daily_return"], horizon_years=3.0, seed=11)
+    lines.append(
+        f"\nAnd even for the 'good' strategy (RSI, OOS Sharpe 0.54): block-bootstrapping its "
+        f"out-of-sample returns over a 3-year horizon, the *typical* worst drawdown is "
+        f"**{dd.median:.0%}** and 1 path in 20 is worse than **{dd.p95:.0%}** — pain you must "
+        f"expect and sit through even if the edge is fully real."
+    )
+
     out = ASSETS / "case_study.md"
     out.write_text("\n".join(lines) + "\n")
     print(f"\ncase study fragment → {out.relative_to(REPO)}")

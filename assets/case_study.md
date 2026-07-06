@@ -109,3 +109,7 @@ Active-day return correlations — Bollinger Breakout↔MA Crossover: 0.48; Boll
 | 5 bps | -2.0% | -0.11 |
 | 10 bps | -2.2% | -0.14 |
 | 25 bps | -3.0% | -0.20 |
+
+Breakeven cost (the per-trade fee at which the gross edge is fully spent): **-19.5 bps** for the MA crossover out-of-sample (there is no gross edge to spend) vs **396.0 bps** for RSI mean-reversion.
+
+And even for the 'good' strategy (RSI, OOS Sharpe 0.54): block-bootstrapping its out-of-sample returns over a 3-year horizon, the *typical* worst drawdown is **-17%** and 1 path in 20 is worse than **-30%** — pain you must expect and sit through even if the edge is fully real.

@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from src.data import fetch_prices
-from src.engine import run_backtest, run_naive_backtest_do_not_use
+from src.engine import breakeven_cost_bps, run_backtest, run_naive_backtest_do_not_use
 from src.ensemble import ensemble_backtest, strategy_correlations
 from src.evaluate import (
     comparison_table,
@@ -28,7 +28,7 @@ from src.robustness import DEFAULT_BASKET, cross_asset_check, robustness_summary
 from src.metrics import alpha_beta, information_ratio, rolling_sharpe, sharpe_ratio
 from src.regimes import regime_performance, vix_regimes
 from src.sizing import volatility_target
-from src.stats import block_bootstrap_sharpe, expected_max_sharpe
+from src.stats import block_bootstrap_sharpe, bootstrap_drawdown_distribution, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY, STRATEGY_SPECS
 from src.style import (
     BENCHMARK_COLOR,
@@ -254,19 +254,42 @@ def render_backtest(cfg: dict, prices: pd.DataFrame) -> None:
             )
 
     st.subheader("Is the out-of-sample Sharpe even real?")
+    oos_frame = result.results.loc[oos_mask]
+    breakeven = breakeven_cost_bps(oos_frame)
     try:
         boot = block_bootstrap_sharpe(oos_rets, n_boot=1000, rf=cfg["rf"])
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Out-of-sample Sharpe", f"{boot.point:.2f}" if pd.notna(boot.point) else "—")
         c2.metric(f"{boot.level:.0%} bootstrap CI", f"[{boot.lo:.2f}, {boot.hi:.2f}]")
         c3.metric("P(Sharpe ≤ 0)", f"{boot.p_leq_zero:.0%}")
+        c4.metric("Breakeven cost", f"{breakeven:.1f} bps" if pd.notna(breakeven) else "—",
+                  help="The per-trade cost at which the gross edge is fully spent. If your real "
+                       "execution costs exceed this, the strategy cannot be harvested at all.")
         if boot.straddles_zero():
             st.info(
                 "The confidence interval includes zero: on this evidence you **cannot** "
                 "conclude the strategy has an edge. Most backtests never admit this."
             )
+        if pd.notna(breakeven) and breakeven < cfg["cost_bps"]:
+            st.warning(
+                f"The gross edge is worth **{breakeven:.1f} bps per unit traded** but you're "
+                f"paying **{cfg['cost_bps']:.0f} bps** — trading costs consume more than the "
+                "strategy earns."
+            )
     except ValueError:
         st.caption("Out-of-sample segment too short for a bootstrap confidence interval.")
+
+    try:
+        dd_dist = bootstrap_drawdown_distribution(oos_rets, horizon_years=3.0, n_paths=1000)
+        st.caption(
+            f"**Drawdown expectations** (block-bootstrap of the out-of-sample returns, 3-year "
+            f"horizon): the *typical* worst drawdown is **{dd_dist.median:.0%}**, and 1 path in "
+            f"20 is worse than **{dd_dist.p95:.0%}**. If you'd abandon the strategy at a "
+            f"drawdown shallower than these, you'd abandon it on ordinary bad luck — decide "
+            f"your quitting point *before* you start."
+        )
+    except ValueError:
+        pass
 
     with st.expander("Trade ledger (round trips, gross of costs)"):
         if cfg.get("vol_target"):

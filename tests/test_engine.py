@@ -140,3 +140,35 @@ class TestValidation:
         signals = pd.Series(1.0, index=closes.index)
         res = run_backtest(closes, signals)
         assert len(res) == 3
+
+
+class TestBreakevenCost:
+    def test_breakeven_zeroes_the_mean_net_return(self):
+        from src.engine import breakeven_cost_bps
+
+        rng = np.random.default_rng(13)
+        closes = 100 * np.cumprod(1 + rng.normal(0.002, 0.01, 200))
+        prices = make_prices(closes)
+        sig = pd.Series((np.arange(200) // 15) % 2, index=prices.index, dtype=float)
+        res = run_backtest(prices, sig, cost_bps=0)
+        be = breakeven_cost_bps(res)
+        assert be > 0  # trending series traded long-only has a gross edge
+        # re-run charging exactly the breakeven: mean net return ≈ 0
+        res_at_be = run_backtest(prices, sig, cost_bps=be)
+        assert res_at_be["daily_return"].mean() == pytest.approx(0.0, abs=1e-15)
+
+    def test_never_trading_is_nan(self):
+        from src.engine import breakeven_cost_bps
+
+        prices = make_prices([100.0] * 10)
+        res = run_backtest(prices, pd.Series(0.0, index=prices.index))
+        assert np.isnan(breakeven_cost_bps(res))
+
+    def test_costless_breakeven_independent_of_cost_charged(self):
+        from src.engine import breakeven_cost_bps
+
+        prices = make_prices([100, 102, 104, 103, 105, 108, 107, 110, 112, 111])
+        sig = pd.Series([0, 1, 1, 0, 1, 1, 1, 0, 0, 0], index=prices.index, dtype=float)
+        a = breakeven_cost_bps(run_backtest(prices, sig, cost_bps=0))
+        b = breakeven_cost_bps(run_backtest(prices, sig, cost_bps=25))
+        assert a == pytest.approx(b)  # gross edge doesn't depend on the fee charged

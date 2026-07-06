@@ -132,3 +132,20 @@ def run_naive_backtest_do_not_use(
         {"position": sig, "asset_return": asset_return, "daily_return": daily_return, "equity": equity},
         index=close.index,
     )
+
+
+def breakeven_cost_bps(results: pd.DataFrame) -> float:
+    """The per-trade cost at which this strategy's mean daily return hits zero.
+
+    A strategy's gross edge (mean of ``position × asset_return``) is spent at
+    a rate of ``cost × mean turnover`` per day, so the breakeven is their
+    ratio — the strategy's entire edge expressed in basis points per unit of
+    trading. Compare it to what execution actually costs: an edge worth 3 bps
+    per trade cannot be harvested at 5 bps. Negative means there is no gross
+    edge to spend; NaN means the strategy never traded.
+    """
+    turn = float(results["turnover"].mean())
+    if turn <= 0:
+        return float("nan")
+    gross = float((results["position"] * results["asset_return"]).mean())
+    return gross / turn * 10_000.0

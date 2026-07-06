@@ -208,6 +208,16 @@ Diversification is the one thing in this project that worked exactly as the text
 A ~40-trade strategy loses another ~1.3% of CAGR moving from fantasy costs to small-cap
 costs. Strategies that trade daily get erased by this line item alone.
 
+Two closing numbers put the whole cost story on one line each. The **breakeven cost** —
+the per-trade fee at which a strategy's gross edge is fully spent — is **-19.5 bps** for
+the crossover out-of-sample (a negative gross edge: no execution quality can save it) versus
+**396 bps** for the slow-trading RSI strategy, whose modest edge at least isn't consumed by
+its own turnover. And for that "good" strategy, block-bootstrapping its returns over a
+3-year horizon says the *typical* worst drawdown to expect is **-17%**, with 1 path in 20
+worse than **-30%** — even if the edge is completely real. A trader who'd quit at -15%
+would abandon a working strategy on ordinary bad luck; deciding the quitting point *before*
+starting is part of the strategy.
+
 ---
 
 ## The app
@@ -247,7 +257,7 @@ src/
 ├── trades.py        position series → round-trip ledger, per-trade stats
 ├── stats.py         moving-block bootstrap CI · expected-max-Sharpe luck yardstick
 └── app.py           Streamlit UI
-tests/               159 pytest tests — see below
+tests/               166 pytest tests — see below
 scripts/             check_data.py · run_case_study.py (regenerates everything above)
 ```
 
@@ -264,7 +274,7 @@ never *chosen* by looking at it.
 
 ## Tests
 
-159 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
+166 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
 
 - **Look-ahead proof:** a signal that peeks at its own bar's return turns an alternating
   series into a money machine in the naive engine and loses in the honest one.
