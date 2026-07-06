@@ -109,3 +109,33 @@ class TestCorrelations:
         corr = strategy_correlations({"a": a, "b": b})
         # padding zeros would drag this toward 0; active-only shows the truth
         assert corr.loc["a", "b"] == pytest.approx(-1.0)
+
+
+class TestReviewRound3Fixes:
+    def test_all_dead_basket_keeps_stable_columns(self, monkeypatch):
+        # When EVERY ticker fails, consumers still need the metric columns
+        # to exist so dropna("oos_sharpe") empties the frame instead of
+        # raising KeyError.
+        monkeypatch.setattr(robustness, "fetch_prices", lambda *a, **k: None)
+        df = cross_asset_check("MA Crossover", ["X", "Y"], fast=10, slow=30)
+        assert "oos_sharpe" in df.columns
+        assert df["oos_sharpe"].isna().all()
+        assert len(df.dropna(subset=["oos_sharpe"])) == 0
+        assert robustness_summary(df)["tickers_tested"] == 0
+
+    def test_invalid_params_for_all_tickers_keeps_stable_columns(self, monkeypatch):
+        monkeypatch.setattr(robustness, "fetch_prices",
+                            lambda *a, **k: synth_prices(seed=1))
+        # fast >= slow raises inside evaluate for every ticker
+        df = cross_asset_check("MA Crossover", ["X", "Y"], fast=100, slow=50)
+        assert "oos_sharpe" in df.columns
+        assert df["oos_sharpe"].isna().all()
+
+    def test_barely_overlapping_series_give_nan_not_spurious_one(self):
+        rng = np.random.default_rng(0)
+        ia = pd.bdate_range("2020-01-01", periods=10)
+        ib = pd.bdate_range("2020-01-13", periods=10)  # 2-day overlap
+        a = pd.DataFrame({"daily_return": rng.normal(0, 0.01, 10), "position": 1.0}, index=ia)
+        b = pd.DataFrame({"daily_return": rng.normal(0, 0.01, 10), "position": 1.0}, index=ib)
+        corr = strategy_correlations({"a": a, "b": b})
+        assert np.isnan(corr.loc["a", "b"])  # 2 shared points is not a correlation

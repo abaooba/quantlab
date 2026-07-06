@@ -41,18 +41,23 @@ def cross_asset_check(
     skipped (they appear in the frame with ``bars = 0``).
     """
     tickers = tickers or DEFAULT_BASKET
+    nan = float("nan")
+    # Fallback rows carry the full schema so the frame's columns are stable
+    # even when EVERY ticker fails — consumers can always dropna("oos_sharpe").
+    empty_metrics = {"is_sharpe": nan, "oos_sharpe": nan, "oos_cagr": nan,
+                     "bh_oos_sharpe": nan, "oos_edge": nan, "overfit_flag": nan}
     rows = []
     for ticker in tickers:
         kwargs = {"cache_dir": cache_dir} if cache_dir is not None else {}
         prices = fetch_prices(ticker, start, end, **kwargs)
         if prices is None or len(prices) < 120:
-            rows.append({"ticker": ticker, "bars": 0})
+            rows.append({"ticker": ticker, "bars": 0, **empty_metrics})
             continue
         try:
             r = evaluate_strategy(strategy, prices, train_frac=train_frac,
                                   cost_bps=cost_bps, rf=rf, **params)
         except (ValueError, KeyError):
-            rows.append({"ticker": ticker, "bars": len(prices)})
+            rows.append({"ticker": ticker, "bars": len(prices), **empty_metrics})
             continue
         rows.append(
             {
@@ -84,5 +89,5 @@ def robustness_summary(check: pd.DataFrame) -> dict[str, float]:
         "median_oos_sharpe": float(valid["oos_sharpe"].median()),
         "positive_oos_frac": float((valid["oos_sharpe"] > 0).mean()),
         "beat_benchmark_frac": float((valid["oos_edge"] > 0).mean()),
-        "overfit_flag_frac": float(valid["overfit_flag"].mean()),
+        "overfit_flag_frac": float(valid["overfit_flag"].astype(bool).mean()),
     }

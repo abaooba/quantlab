@@ -68,8 +68,11 @@ def strategy_correlations(results_map: dict[str, pd.DataFrame]) -> pd.DataFrame:
     out = pd.DataFrame(1.0, index=names, columns=names)
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            ra = results_map[a]["daily_return"]
-            rb = results_map[b]["daily_return"]
+            # Align on the shared dates FIRST, so the <3-active-days guard
+            # counts exactly the sample the correlation is computed on —
+            # a union-based count would let two barely-overlapping series
+            # slip through and report a spurious ±1.0.
+            ra, rb = results_map[a]["daily_return"].align(results_map[b]["daily_return"], join="inner")
             active = (ra != 0) | (rb != 0)
             if active.sum() < 3:
                 corr = float("nan")

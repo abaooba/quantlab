@@ -79,9 +79,9 @@ def cached_walkforward(ticker, start, end, strategy, n_windows, cost_bps):
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def cached_cross_asset(strategy, params, start, end, train_frac, cost_bps):
+def cached_cross_asset(strategy, params, start, end, train_frac, cost_bps, rf):
     return cross_asset_check(strategy, DEFAULT_BASKET, start, end,
-                             train_frac=train_frac, cost_bps=cost_bps, **dict(params))
+                             train_frac=train_frac, cost_bps=cost_bps, rf=rf, **dict(params))
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -412,7 +412,7 @@ def render_robustness(cfg: dict, prices: pd.DataFrame) -> None:
     with st.spinner("Backtesting the basket…"):
         df = cached_cross_asset(
             cfg["strategy"], tuple(sorted(cfg["params"].items())),
-            cfg["start"], cfg["end"], cfg["train_frac"], cfg["cost_bps"],
+            cfg["start"], cfg["end"], cfg["train_frac"], cfg["cost_bps"], cfg["rf"],
         )
     testable = df[df["bars"] > 0].dropna(subset=["oos_sharpe"])
     if len(testable) == 0:
@@ -451,7 +451,11 @@ def render_robustness(cfg: dict, prices: pd.DataFrame) -> None:
         "compare — next to the correlation matrix that explains the result."
     )
     ens, indiv = ensemble_backtest(prices, cost_bps=cfg["cost_bps"])
-    split = split_in_out_sample(prices, cfg["train_frac"])
+    try:
+        split = split_in_out_sample(prices, cfg["train_frac"], split_date=cfg.get("split_date"))
+    except ValueError as exc:
+        st.error(f"Invalid split for the ensemble table: {exc}")
+        return
 
     rows = []
     for name, res in {**indiv, "Equal-weight ensemble": ens}.items():
