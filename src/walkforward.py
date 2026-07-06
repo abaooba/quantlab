@@ -25,7 +25,6 @@ replacing whatever historical transition the new run happened to embed.
 
 from __future__ import annotations
 
-import itertools
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -35,7 +34,7 @@ import plotly.graph_objects as go
 
 from src.engine import run_backtest
 from src.metrics import build_equity, sharpe_ratio, summarize_returns
-from src.strategies.base import STRATEGY_REGISTRY
+from src.strategies.base import expand_grid, resolve_strategy
 from src.style import ACCENT_COLOR, BENCHMARK_COLOR, MUTED_INK, base_layout, plot_date
 
 MAX_COMBOS = 400
@@ -65,14 +64,6 @@ class WalkForwardResult:
     benchmark_metrics: dict[str, float] = field(default_factory=dict)
 
 
-def _combos(param_grid: dict[str, list]) -> list[dict]:
-    keys = list(param_grid)
-    combos = [dict(zip(keys, vals)) for vals in itertools.product(*param_grid.values())]
-    if len(combos) > MAX_COMBOS:
-        raise ValueError(f"{len(combos)} combos > {MAX_COMBOS}; thin the grid")
-    return combos
-
-
 def walk_forward(
     strategy: str | Callable[..., pd.Series],
     prices: pd.DataFrame,
@@ -89,10 +80,7 @@ def walk_forward(
     the remainder is cut into ``n_windows`` equal test segments. Each window
     trains on *all* data before its test segment (anchored/expanding).
     """
-    if isinstance(strategy, str):
-        name, fn = strategy, STRATEGY_REGISTRY[strategy]
-    else:
-        name, fn = getattr(strategy, "__name__", "custom"), strategy
+    name, fn = resolve_strategy(strategy)
     if not 0.0 < initial_train_frac < 1.0:
         raise ValueError("initial_train_frac must be in (0, 1)")
 
@@ -106,7 +94,7 @@ def walk_forward(
     # Combos invalid for the strategy (e.g. fast ≥ slow) are skipped.
     combos: list[dict] = []
     runs: list[pd.DataFrame] = []
-    for combo in _combos(param_grid):
+    for combo in expand_grid(param_grid, MAX_COMBOS):
         try:
             signals = fn(prices, **combo)
         except ValueError:

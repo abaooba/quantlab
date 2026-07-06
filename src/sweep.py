@@ -10,7 +10,6 @@ moving — or turning cold — *is* overfitting, rendered directly.
 
 from __future__ import annotations
 
-import itertools
 from typing import Callable
 
 import numpy as np
@@ -21,7 +20,7 @@ from plotly.subplots import make_subplots
 from src.engine import run_backtest
 from src.evaluate import split_in_out_sample
 from src.metrics import build_equity, cagr, sharpe_ratio
-from src.strategies.base import STRATEGY_REGISTRY
+from src.strategies.base import expand_grid, resolve_strategy
 from src.style import DIVERGING_SCALE, base_layout
 
 MAX_COMBOS = 900
@@ -40,15 +39,8 @@ def parameter_sweep(
     Combos that are invalid for the strategy (e.g. fast ≥ slow for an MA
     crossover) are skipped rather than failing the sweep.
     """
-    if isinstance(strategy, str):
-        fn = STRATEGY_REGISTRY[strategy]
-    else:
-        fn = strategy
-
-    keys = list(param_grid)
-    combos = [dict(zip(keys, vals)) for vals in itertools.product(*param_grid.values())]
-    if len(combos) > MAX_COMBOS:
-        raise ValueError(f"{len(combos)} combos > {MAX_COMBOS}; thin the grid")
+    _, fn = resolve_strategy(strategy)
+    combos = expand_grid(param_grid, MAX_COMBOS)
 
     split_date = split_in_out_sample(prices, train_frac)
     rows = []

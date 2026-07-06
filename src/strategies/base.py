@@ -15,6 +15,7 @@ any registered strategy without hardcoding imports.
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -58,6 +59,24 @@ def register_strategy(name: str, params: tuple[ParamSpec, ...] = (), description
         return fn
 
     return decorator
+
+
+def resolve_strategy(strategy: str | Callable[..., pd.Series]) -> tuple[str, Callable[..., pd.Series]]:
+    """Resolve a registry display name — or a raw signal function — to (name, fn)."""
+    if isinstance(strategy, str):
+        if strategy not in STRATEGY_REGISTRY:
+            raise KeyError(f"unknown strategy {strategy!r}; registered: {list(STRATEGY_REGISTRY)}")
+        return strategy, STRATEGY_REGISTRY[strategy]
+    return getattr(strategy, "__name__", "custom"), strategy
+
+
+def expand_grid(param_grid: dict[str, list], max_combos: int) -> list[dict]:
+    """Every combination of a parameter grid, guarded against explosion."""
+    keys = list(param_grid)
+    combos = [dict(zip(keys, vals)) for vals in itertools.product(*param_grid.values())]
+    if len(combos) > max_combos:
+        raise ValueError(f"{len(combos)} combos > {max_combos}; thin the grid")
+    return combos
 
 
 def close_series(prices: pd.DataFrame | pd.Series) -> pd.Series:

@@ -18,7 +18,6 @@ never emit -1. Fractional values in [-1, 1] (partial sizing) also work.
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 VALID_SIGNAL_RANGE = (-1.0, 1.0)
@@ -66,7 +65,7 @@ def run_backtest(
         ``position``     stance actually held during the bar (post-shift)
         ``asset_return`` the instrument's simple daily return
         ``daily_return`` strategy return net of costs
-        ``turnover``     |Δposition| executed at that bar's open
+        ``turnover``     |Δposition| going into the bar (filled at the prior close)
         ``cost``         cost drag deducted from that bar's return
         ``equity``       compounded equity, starting at ``initial_capital``
     """
@@ -120,8 +119,9 @@ def run_naive_backtest_do_not_use(
 
     Applies day *t*'s signal to day *t*'s own return — i.e. it trades on
     information from the very close it is reacting to — and charges nothing
-    to trade. ``scripts/lookahead_demo.py`` and the engine tests use it to
-    show how spectacular (and fake) the resulting equity curve is.
+    to trade. ``scripts/run_case_study.py``, the app's Methodology tab, and
+    the engine tests use it to show how spectacular (and fake) the resulting
+    equity curve is.
     """
     close = _close_series(prices)
     sig = signals.astype(float).fillna(0.0)

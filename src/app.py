@@ -383,7 +383,7 @@ def render_sweep(cfg: dict, prices: pd.DataFrame) -> None:
         f"{best['is_sharpe']:.2f}) ranks **#{rank} of {len(df)}** combos out-of-sample "
         f"(beats {pct:.0%} of them, out-of-sample Sharpe {best['oos_sharpe']:.2f})."
     )
-    n_is_obs = int((prices.index < prices.index[int(len(prices) * cfg["train_frac"])]).sum())
+    n_is_obs = int(len(prices) * cfg["train_frac"])  # bars before the split cut
     luck = expected_max_sharpe(len(df), n_is_obs)
     if pd.notna(luck):
         st.markdown(

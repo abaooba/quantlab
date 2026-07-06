@@ -27,7 +27,7 @@ import plotly.graph_objects as go
 
 from src.engine import run_backtest
 from src.metrics import drawdown_series, summarize_returns
-from src.strategies.base import STRATEGY_REGISTRY
+from src.strategies.base import resolve_strategy
 from src.style import (
     BENCHMARK_COLOR,
     STRATEGY_COLOR,
@@ -139,12 +139,7 @@ def evaluate_strategy(
     ``train_frac`` unless an explicit ``split_date`` is given. A buy-and-hold
     benchmark over the same window is evaluated alongside, split identically.
     """
-    if isinstance(strategy, str):
-        if strategy not in STRATEGY_REGISTRY:
-            raise KeyError(f"unknown strategy {strategy!r}; registered: {list(STRATEGY_REGISTRY)}")
-        name, fn = strategy, STRATEGY_REGISTRY[strategy]
-    else:
-        name, fn = getattr(strategy, "__name__", "custom"), strategy
+    name, fn = resolve_strategy(strategy)
 
     split_date = split_in_out_sample(prices, train_frac, split_date=split_date)
 
