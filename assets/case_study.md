@@ -76,6 +76,31 @@ The in-sample champion (fast=20, slow=50) posts an in-sample Sharpe of **1.08** 
 
 Chosen parameters per window: fast=20, slow=50; fast=20, slow=50; fast=20, slow=50; fast=10, slow=100; fast=10, slow=100.
 
+### Does the edge travel? (MA 20/50 across a liquid-ETF basket, out-of-sample)
+
+| Ticker | OOS Sharpe (strategy) | OOS Sharpe (buy & hold) | Edge |
+|---|---|---|---|
+| SPY | -0.11 | 0.56 | -0.68 |
+| QQQ | 0.30 | 0.49 | -0.19 |
+| IWM | -0.27 | 0.16 | -0.43 |
+| EFA | -0.43 | 0.17 | -0.60 |
+| EEM | -0.06 | -0.04 | -0.02 |
+| GLD | 0.54 | 0.90 | -0.36 |
+| TLT | -0.01 | -0.70 | +0.69 |
+
+Across 7 tickers the strategy beat buy-and-hold on **14%** of them (median OOS Sharpe -0.06).
+
+### Diversifying across strategies (SPY, out-of-sample Sharpe)
+
+| | OOS Sharpe |
+|---|---|
+| Bollinger Breakout | 0.34 |
+| MA Crossover | -0.11 |
+| RSI Mean-Reversion | 0.54 |
+| **Equal-weight ensemble** | 0.36 |
+
+Active-day return correlations — Bollinger Breakout↔MA Crossover: 0.48; Bollinger Breakout↔RSI Mean-Reversion: 0.13; MA Crossover↔RSI Mean-Reversion: 0.22.
+
 ### What realistic costs do (MA Crossover 20/50, out-of-sample)
 
 | Cost per trade | OOS CAGR | OOS Sharpe |

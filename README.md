@@ -162,6 +162,40 @@ returns in calm and normal markets (its whipsaw premium) in exchange for losing 
 volatility spikes. Whether that trade is worth it is a risk-preference question — but a
 backtest that only shows the full-period average never even lets you ask it.
 
+### Act 7 — Does the edge travel?
+
+A rule that only works on the ticker it was tuned on isn't a strategy — it's a description
+of that ticker's past. Run the identical 20/50 crossover, unchanged, across a basket of
+liquid ETFs (out-of-sample segment, same costs):
+
+| Ticker | Strategy OOS Sharpe | Buy & hold OOS Sharpe | Edge |
+|---|---|---|---|
+| SPY | -0.11 | 0.56 | -0.68 |
+| QQQ | 0.30 | 0.49 | -0.19 |
+| IWM | -0.27 | 0.16 | -0.43 |
+| EFA | -0.43 | 0.17 | -0.60 |
+| EEM | -0.06 | -0.04 | -0.02 |
+| GLD | 0.54 | 0.90 | -0.36 |
+| TLT | -0.01 | -0.70 | **+0.69** |
+
+It beat buy-and-hold on **one ticker in seven** — TLT, where "winning" meant sitting out a
+bond bear market. The one robustness question most backtest write-ups never ask ("what
+happens on assets I *didn't* tune on?") takes eight rows to answer here, and the answer is no.
+
+One genuinely constructive result closes the case study. Blend all three strategies
+equal-weight into one position (their active-day return correlations are only 0.13–0.48):
+
+| SPY, out-of-sample | Sharpe |
+|---|---|
+| MA Crossover | -0.11 |
+| Bollinger Breakout | 0.34 |
+| RSI Mean-Reversion | 0.54 |
+| **Equal-weight ensemble** | **0.36** |
+
+The blend beats two of its three components without needing to know *in advance* which one
+would win — which is the entire point, because "just pick the best one" is hindsight again.
+Diversification is the one thing in this project that worked exactly as the textbook promised.
+
 ### Epilogue — costs, the quiet killer
 
 | Cost per trade (MA 20/50, out-of-sample) | OOS CAGR | OOS Sharpe |
@@ -184,7 +218,8 @@ costs. Strategies that trade daily get erased by this line item alone.
 |---|---|
 | 📈 **Backtest** | Pick ticker, dates, strategy, parameters, split, cost — and optionally volatility targeting. Equity + drawdown vs buy-and-hold with the out-of-sample region shaded, side-by-side in/out-of-sample metrics, an automated overfitting verdict, an out-of-sample CAPM row (beta / alpha / R² / information ratio), a rolling 1-year Sharpe, a VIX regime-attribution table, a bootstrap CI on the out-of-sample Sharpe, and a round-trip trade ledger. |
 | 🔁 **Walk-Forward** | Anchored walk-forward optimization over a parameter grid: the all-out-of-sample equity curve, per-window chosen parameters (watch them jump — that's fragility), and the "reality gap" vs the hindsight-optimized Sharpe. |
-| 🔥 **Parameter Sweep** | The in-sample vs out-of-sample heatmap pair for the current ticker, with the in-sample champion starred and its out-of-sample rank computed. |
+| 🔥 **Parameter Sweep** | The in-sample vs out-of-sample heatmap pair for the current ticker, with the in-sample champion starred, its out-of-sample rank computed, and the expected-max-Sharpe luck yardstick alongside. |
+| 🌍 **Robustness** | The current strategy and parameters run unchanged across a seven-ETF basket (does the edge travel?), plus the equal-weight strategy ensemble with its return-correlation matrix. |
 | 📚 **Methodology** | The three lies and their fixes, plus the naive-vs-honest engine demo run live on your chosen ticker. |
 
 ## Architecture
@@ -204,13 +239,15 @@ src/
 ├── evaluate.py      chronological split · segment metrics · overfitting verdict · figures
 ├── sizing.py        volatility-targeted position sizing (fractional, never levered)
 ├── regimes.py       VIX regime attribution (calm/normal/stressed, fixed thresholds)
+├── robustness.py    same rule across an ETF basket — does the edge travel?
+├── ensemble.py      blended-signal backtests + strategy return correlations
 ├── walkforward.py   anchored expanding-window optimization, chained OOS curve
 │                    (seam transitions charged at actual position change)
 ├── sweep.py         param grid → IS/OOS surface, champion-rank analysis
 ├── trades.py        position series → round-trip ledger, per-trade stats
 ├── stats.py         moving-block bootstrap CI · expected-max-Sharpe luck yardstick
 └── app.py           Streamlit UI
-tests/               148 pytest tests — see below
+tests/               159 pytest tests — see below
 scripts/             check_data.py · run_case_study.py (regenerates everything above)
 ```
 
@@ -227,7 +264,7 @@ never *chosen* by looking at it.
 
 ## Tests
 
-148 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
+159 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
 
 - **Look-ahead proof:** a signal that peeks at its own bar's return turns an alternating
   series into a money machine in the naive engine and loses in the honest one.

@@ -15,19 +15,29 @@ import streamlit as st
 
 from src.data import fetch_prices
 from src.engine import run_backtest, run_naive_backtest_do_not_use
+from src.ensemble import ensemble_backtest, strategy_correlations
 from src.evaluate import (
     comparison_table,
     evaluate_strategy,
     format_metric,
     plot_drawdown,
     plot_equity_curve,
+    split_in_out_sample,
 )
-from src.metrics import alpha_beta, information_ratio, rolling_sharpe
+from src.robustness import DEFAULT_BASKET, cross_asset_check, robustness_summary
+from src.metrics import alpha_beta, information_ratio, rolling_sharpe, sharpe_ratio
 from src.regimes import regime_performance, vix_regimes
 from src.sizing import volatility_target
 from src.stats import block_bootstrap_sharpe, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY, STRATEGY_SPECS
-from src.style import BENCHMARK_COLOR, MUTED_INK, NEGATIVE_COLOR, STRATEGY_COLOR, base_layout
+from src.style import (
+    BENCHMARK_COLOR,
+    DIVERGING_SCALE,
+    MUTED_INK,
+    NEGATIVE_COLOR,
+    STRATEGY_COLOR,
+    base_layout,
+)
 from src.sweep import best_in_sample, oos_rank_of_is_best, parameter_sweep, sweep_heatmap_pair
 from src.trades import extract_trades, trade_stats
 from src.walkforward import plot_walk_forward, walk_forward
@@ -66,6 +76,12 @@ def cached_sweep(ticker, start, end, strategy, train_frac, cost_bps):
 def cached_walkforward(ticker, start, end, strategy, n_windows, cost_bps):
     prices = load_prices(ticker, start, end)
     return walk_forward(strategy, prices, WF_GRIDS[strategy], n_windows=n_windows, cost_bps=cost_bps)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def cached_cross_asset(strategy, params, start, end, train_frac, cost_bps):
+    return cross_asset_check(strategy, DEFAULT_BASKET, start, end,
+                             train_frac=train_frac, cost_bps=cost_bps, **dict(params))
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -361,6 +377,79 @@ def render_sweep(cfg: dict, prices: pd.DataFrame) -> None:
         )
 
 
+def render_robustness(cfg: dict, prices: pd.DataFrame) -> None:
+    import plotly.graph_objects as go
+
+    st.subheader("Does the edge travel?")
+    st.caption(
+        "The same strategy, the same parameters, across unrelated liquid ETFs. A rule that "
+        "only works on the ticker it was tuned on isn't a strategy — it's a description of "
+        "that ticker's past. Genuine effects show up (weaker or stronger) almost everywhere."
+    )
+    with st.spinner("Backtesting the basket…"):
+        df = cached_cross_asset(
+            cfg["strategy"], tuple(sorted(cfg["params"].items())),
+            cfg["start"], cfg["end"], cfg["train_frac"], cfg["cost_bps"],
+        )
+    testable = df[df["bars"] > 0].dropna(subset=["oos_sharpe"])
+    if len(testable) == 0:
+        st.error("No basket ticker returned data — check the date range.")
+        return
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=testable["ticker"], y=testable["bh_oos_sharpe"],
+                         name="Buy & hold", marker_color=BENCHMARK_COLOR))
+    fig.add_trace(go.Bar(x=testable["ticker"], y=testable["oos_sharpe"],
+                         name=cfg["strategy"], marker_color=STRATEGY_COLOR))
+    layout = base_layout(f"Out-of-sample Sharpe by ticker — {cfg['strategy']}", y_title="Sharpe")
+    layout.pop("hovermode")
+    fig.update_layout(barmode="group", **layout)
+    fig.add_hline(y=0, line_color=MUTED_INK, line_width=1)
+    st.plotly_chart(fig, width="stretch")
+
+    s = robustness_summary(df)
+    st.markdown(
+        f"Across **{s['tickers_tested']} tickers**: median out-of-sample Sharpe "
+        f"**{s['median_oos_sharpe']:.2f}**, positive on {s['positive_oos_frac']:.0%}, "
+        f"**beat buy-and-hold on {s['beat_benchmark_frac']:.0%}**, overfitting flag fired on "
+        f"{s['overfit_flag_frac']:.0%}."
+    )
+    show = testable.copy()
+    for col in ("is_sharpe", "oos_sharpe", "bh_oos_sharpe", "oos_edge"):
+        show[col] = show[col].map("{:.2f}".format)
+    show["oos_cagr"] = show["oos_cagr"].map(lambda v: f"{v:+.1%}")
+    st.dataframe(show, width="stretch", hide_index=True)
+
+    st.divider()
+    st.subheader("Diversifying across strategies (this ticker)")
+    st.caption(
+        "The one free lunch: strategies with uncorrelated returns partially cancel each "
+        "other's volatility. Equal-weight all three signals into one blended position and "
+        "compare — next to the correlation matrix that explains the result."
+    )
+    ens, indiv = ensemble_backtest(prices, cost_bps=cfg["cost_bps"])
+    split = split_in_out_sample(prices, cfg["train_frac"])
+
+    rows = []
+    for name, res in {**indiv, "Equal-weight ensemble": ens}.items():
+        oos = res.loc[res.index >= split, "daily_return"]
+        rows.append({"Strategy": name,
+                     "OOS Sharpe": format_metric("Sharpe", sharpe_ratio(oos, cfg["rf"]))})
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+
+    corr = strategy_correlations(indiv)
+    heat = go.Figure(go.Heatmap(
+        z=corr.values, x=corr.columns, y=corr.index,
+        colorscale=DIVERGING_SCALE, zmin=-1, zmax=1, zmid=0,
+        text=[[f"{v:.2f}" for v in row] for row in corr.values],
+        texttemplate="%{text}",
+    ))
+    hl = base_layout("Return correlations (active days only)", height=360)
+    hl.pop("hovermode")
+    heat.update_layout(**hl)
+    st.plotly_chart(heat, width="stretch")
+
+
 def render_methodology(cfg: dict, prices: pd.DataFrame) -> None:
     st.markdown(
         """
@@ -427,7 +516,9 @@ def main() -> None:
         f"costs {cfg['cost_bps']:.0f} bps per trade"
     )
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Backtest", "🔁 Walk-Forward", "🔥 Parameter Sweep", "📚 Methodology"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["📈 Backtest", "🔁 Walk-Forward", "🔥 Parameter Sweep", "🌍 Robustness", "📚 Methodology"]
+    )
     with tab1:
         render_backtest(cfg, prices)
     with tab2:
@@ -435,6 +526,8 @@ def main() -> None:
     with tab3:
         render_sweep(cfg, prices)
     with tab4:
+        render_robustness(cfg, prices)
+    with tab5:
         render_methodology(cfg, prices)
 
     st.divider()

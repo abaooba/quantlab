@@ -22,8 +22,11 @@ import plotly.graph_objects as go
 from src.data import fetch_prices
 from src.engine import run_backtest, run_naive_backtest_do_not_use
 from src.evaluate import evaluate_strategy, format_metric, plot_drawdown, plot_equity_curve
-from src.metrics import alpha_beta, information_ratio
+from src.ensemble import ensemble_backtest, strategy_correlations
+from src.evaluate import split_in_out_sample
+from src.metrics import alpha_beta, information_ratio, sharpe_ratio
 from src.regimes import regime_performance, vix_regimes
+from src.robustness import cross_asset_check, robustness_summary
 from src.sizing import volatility_target
 from src.stats import block_bootstrap_sharpe, expected_max_sharpe
 from src.strategies import STRATEGY_REGISTRY
@@ -215,6 +218,35 @@ def main() -> None:
     )
     lines.append("Chosen parameters per window: " +
                  "; ".join(", ".join(f"{k}={v}" for k, v in w.best_params.items()) for w in wf.windows) + ".")
+
+    # ── 6b. Does the edge travel? Cross-asset + ensemble ───────────────────
+    basket = cross_asset_check("MA Crossover", start=START, end=END,
+                               train_frac=TRAIN_FRAC, cost_bps=COST_BPS, fast=20, slow=50)
+    testable = basket[basket["bars"] > 0].dropna(subset=["oos_sharpe"])
+    s = robustness_summary(basket)
+    lines.append("\n### Does the edge travel? (MA 20/50 across a liquid-ETF basket, out-of-sample)\n")
+    lines.append("| Ticker | OOS Sharpe (strategy) | OOS Sharpe (buy & hold) | Edge |")
+    lines.append("|---|---|---|---|")
+    for _, row in testable.iterrows():
+        lines.append(f"| {row['ticker']} | {row['oos_sharpe']:.2f} | {row['bh_oos_sharpe']:.2f} "
+                     f"| {row['oos_edge']:+.2f} |")
+    lines.append(
+        f"\nAcross {s['tickers_tested']} tickers the strategy beat buy-and-hold on "
+        f"**{s['beat_benchmark_frac']:.0%}** of them (median OOS Sharpe "
+        f"{s['median_oos_sharpe']:.2f})."
+    )
+
+    ens, indiv = ensemble_backtest(prices, cost_bps=COST_BPS)
+    split_date = split_in_out_sample(prices, TRAIN_FRAC)
+    corr = strategy_correlations(indiv)
+    lines.append("\n### Diversifying across strategies (SPY, out-of-sample Sharpe)\n")
+    lines.append("| | OOS Sharpe |\n|---|---|")
+    for name, res in {**indiv, "**Equal-weight ensemble**": ens}.items():
+        oos = res.loc[res.index >= split_date, "daily_return"]
+        lines.append(f"| {name} | {sharpe_ratio(oos):.2f} |")
+    pairs = [f"{a}↔{b}: {corr.loc[a, b]:.2f}"
+             for i, a in enumerate(corr.index) for b in corr.columns[i + 1:]]
+    lines.append(f"\nActive-day return correlations — {'; '.join(pairs)}.")
 
     # ── 7. Cost sensitivity ─────────────────────────────────────────────────
     lines.append("\n### What realistic costs do (MA Crossover 20/50, out-of-sample)\n")
