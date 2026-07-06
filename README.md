@@ -48,7 +48,7 @@ worst drawdown (-14.1% vs -33.7%).
 The last 30% of the window (2022 → 2025) was never touched during tuning. The crossover
 didn't merely regress — it **lost money while the market made +8.6% a year**:
 
-| Out-of-sample (2021-12-30 → 2025) | CAGR | Sharpe | Sortino | Max drawdown | Win rate | Exposure |
+| Out-of-sample (2021-12-30 → 2024-12-31) | CAGR | Sharpe | Sortino | Max drawdown | Win rate | Exposure |
 |---|---|---|---|---|---|---|
 | MA Crossover (20/50) | **-2.0%** | **-0.11** | -0.15 | -29.2% | 51.1% | 63.2% |
 | RSI Mean-Reversion (14, 30/70) | +7.0% | 0.54 | 0.80 | -20.6% | 49.4% | 45.6% |
@@ -130,10 +130,10 @@ into market exposure plus not much:
 | RSI Mean-Reversion | 0.68 | +1.2% | 0.68 | -0.20 |
 | Bollinger Breakout | 0.20 | +0.7% | 0.20 | -0.46 |
 
-Every information ratio is negative: net of what a scaled index position would have
-delivered, none of these strategies added value. (Spot the structural identity: for an
-on/off strategy trading its own benchmark, R² ≈ β ≈ time in market — the "strategy" is
-mostly just intermittent index exposure.)
+Every information ratio is negative: relative to simply holding the index, none of these
+strategies added value per unit of tracking risk. (Spot the structural identity in the
+table: for an on/off strategy trading its own benchmark, R² ≈ β — the "strategy" is mostly
+just intermittent index exposure wearing a costume.)
 
 Position **sizing**, though, is a different story. Scale a plain buy-and-hold by
 `target ÷ realized volatility` (10% target, 20-day estimate, never levered above 1×) and
@@ -180,7 +180,7 @@ liquid ETFs (out-of-sample segment, same costs):
 
 It beat buy-and-hold on **one ticker in seven** — TLT, where "winning" meant sitting out a
 bond bear market. The one robustness question most backtest write-ups never ask ("what
-happens on assets I *didn't* tune on?") takes eight rows to answer here, and the answer is no.
+happens on assets I *didn't* tune on?") takes seven rows to answer here, and the answer is no.
 
 One genuinely constructive result closes the case study. Blend all three strategies
 equal-weight into one position (their active-day return correlations are only 0.13–0.48):
@@ -205,8 +205,9 @@ Diversification is the one thing in this project that worked exactly as the text
 | 10 bps | -2.2% | -0.14 |
 | 25 bps (small-cap reality) | -3.0% | -0.20 |
 
-A ~40-trade strategy loses another ~1.3% of CAGR moving from fantasy costs to small-cap
-costs. Strategies that trade daily get erased by this line item alone.
+Even this *slow* strategy — 17 one-way position changes in the whole out-of-sample window —
+loses ~1.3% of CAGR moving from fantasy costs to small-cap costs. Strategies that trade
+daily get erased by this line item alone.
 
 Two closing numbers put the whole cost story on one line each. The **breakeven cost** —
 the per-trade fee at which a strategy's gross edge is fully spent — is **-19.5 bps** for
@@ -257,7 +258,7 @@ src/
 ├── trades.py        position series → round-trip ledger, per-trade stats
 ├── stats.py         moving-block bootstrap CI · expected-max-Sharpe luck yardstick
 └── app.py           Streamlit UI
-tests/               166 pytest tests — see below
+tests/               170 pytest tests — see below
 scripts/             check_data.py · run_case_study.py (regenerates everything above)
 ```
 
@@ -274,13 +275,14 @@ never *chosen* by looking at it.
 
 ## Tests
 
-166 tests, all offline except two marked live-data checks (`-m "not network"` to skip them):
+170 tests, all offline except three marked live-data checks (`-m "not network"` to skip them):
 
 - **Look-ahead proof:** a signal that peeks at its own bar's return turns an alternating
   series into a money machine in the naive engine and loses in the honest one.
 - **Cost accounting:** a single flip charges exactly one `cost_bps`; a long→short reversal
-  charges exactly two; constant-long reproduces manual buy-and-hold net of one entry fee
-  (and matches real SPY CAGR to < 1 bp).
+  charges exactly two; constant-long reproduces manual buy-and-hold net of one entry fee —
+  including a live-data test that reproduces real SPY 2015–2025 buy-and-hold CAGR exactly
+  at zero cost and within 1 bp at 5 bps.
 - **Metric identities:** hand-computed Sharpe/Sortino/CAGR/drawdown cases, the
   Sortino ≈ √2 × Sharpe symmetric-returns identity, drawdown peak/trough/recovery dates.
 - **Split hygiene:** segments are disjoint, exhaustive, chronological; segment metrics are
@@ -316,7 +318,8 @@ never *chosen* by looking at it.
 ## Honest limitations (know what this isn't)
 
 - Daily bars, executed at closes; no intraday fills, no slippage model beyond flat bps,
-  no borrow costs on shorts, no position sizing beyond ±1/0.
+  no borrow costs on shorts. Position sizing is fractional in [-1, 1] (volatility
+  targeting can de-risk but never lever up); there is no margin or leverage modeling.
 - Single-instrument backtests: no portfolio effects, and testing only on SPY (an index that
   by construction survived) sidesteps but doesn't solve survivorship bias — test on
   delisted names and the data itself gets harder.

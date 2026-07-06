@@ -172,3 +172,24 @@ class TestBreakevenCost:
         a = breakeven_cost_bps(run_backtest(prices, sig, cost_bps=0))
         b = breakeven_cost_bps(run_backtest(prices, sig, cost_bps=25))
         assert a == pytest.approx(b)  # gross edge doesn't depend on the fee charged
+
+
+@pytest.mark.network
+class TestRealDataValidation:
+    def test_constant_long_reproduces_real_spy_buy_and_hold_cagr(self, tmp_path):
+        from src.data import fetch_prices
+        from src.metrics import cagr
+
+        prices = fetch_prices("SPY", "2015-01-01", "2025-01-01", cache_dir=tmp_path)
+        assert prices is not None
+        growth = prices["Close"].iloc[-1] / prices["Close"].iloc[0]
+        years = (prices.index[-1] - prices.index[0]).days / 365.25
+        manual = growth ** (1 / years) - 1
+
+        hold = pd.Series(1.0, index=prices.index)
+        # zero cost: exact reproduction of the published-style CAGR
+        exact = cagr(run_backtest(prices, hold, cost_bps=0)["equity"])
+        assert exact == pytest.approx(manual, abs=1e-9)
+        # 5 bps: the single entry fee costs less than 1 bp of CAGR over a decade
+        realistic = cagr(run_backtest(prices, hold, cost_bps=5)["equity"])
+        assert abs(realistic - manual) < 1e-4
