@@ -1,5 +1,7 @@
 # QuantLab — an honest algorithmic-trading backtester
 
+![tests](https://github.com/abaooba/quantlab/actions/workflows/tests.yml/badge.svg)
+
 **[Live Demo →](#)** *(Streamlit Cloud — link coming after deploy)*
 
 Most people's first backtest is a lie. It trades for free, it acts on prices that hadn't
